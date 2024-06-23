@@ -1,0 +1,70 @@
+# Caminho para o arquivo de texto com email e senha
+$arquivoCredenciais = "C:\Users\powerbi\Desktop\BackupRelatorios\Credenciais.txt"
+
+# Lista de nomes de workspaces que você deseja alternar
+$workspaces = @("WORKSPACE_FINANCEIRO")
+     
+foreach ($w in $workspaces) {
+
+# Verifica se o arquivo de texto existe
+if (Test-Path $arquivoCredenciais -PathType Leaf) {
+    # Lê o conteúdo do arquivo de texto
+    $conteudo = Get-Content $arquivoCredenciais
+
+    # Procura por linhas que contenham as informações de email e senha
+    $email = $conteudo | Where-Object { $_ -match "Email:" } | ForEach-Object { $_ -replace "Email:", "" }
+    $senha = $conteudo | Where-Object { $_ -match "Senha:" } | ForEach-Object { $_ -replace "Senha:", "" }
+
+    # Remove espaços em branco do email e senha
+    $email = $email.Trim()
+    $senha = $senha.Trim()
+
+    # Verifica se as credenciais foram encontradas
+    if (-not [string]::IsNullOrEmpty($email) -and -not [string]::IsNullOrEmpty($senha)) {
+
+        # Faça o login no serviço Power BI usando as credenciais
+        Connect-PowerBIServiceAccount -Credential (New-Object PSCredential -ArgumentList $email, ($senha | ConvertTo-SecureString -AsPlainText -Force))
+
+        # Se o login for bem-sucedido, você estará conectado ao serviço Power BI
+		
+		#Mensagem para o usuário saber o workscape acessado
+		Write-Host "Acesso com exito ao WORKSPACE $w" 
+			
+        # Get workspace, obter o ID do workspace
+        $Wid = (Get-PowerBIWorkspace -Name $w).Id
+
+        # Get Reports, obter os IDs dos relatórios
+        $Rid = Get-PowerBIReport -WorkspaceID $Wid
+
+        # Estrutura de repetição
+        $maxAttempts = 10
+        foreach ($i in $Rid) {
+            $dir = "C:\Users\powerbi\Desktop\BackupRelatorios\Downloads_BKP_AUTOMATICO\" + $i.Name + ".pbix"
+            $attempts = 0
+            
+            do {
+                try {
+                    Write-Host "Exportação em execução de" $i.Name 
+                    Export-PowerBIReport -Id $i.Id -OutFile $dir
+                    if (Test-Path -Path $dir) {
+                        Write-Host "Exportação de" $i.Name "concluída com sucesso"
+                        break  # Saia do loop se a exportação for bem-sucedida e o arquivo existir no diretório
+                    } else {
+                        $attempts++
+                        Write-Host "A exportação de" $i.Name "parece ter falhado, o arquivo não foi encontrado no diretório. Tentando novamente..."
+                        Start-Sleep -Seconds 10  # Aguardar 10 segundos antes de tentar novamente
+                    }
+                } catch {
+                    $attempts++
+                    Write-Host "Tentativa $attempts de exportação de" $i.Name "falhou. Tentando novamente..."
+                    Start-Sleep -Seconds 10  # Aguardar 10 segundos antes de tentar novamente
+                }
+            } while ($attempts -lt $maxAttempts)
+        }
+    } else {
+        Write-Host "Não foi possível encontrar informações de login válidas no arquivo."
+    }
+} else {
+    Write-Host "O arquivo de credenciais não foi encontrado em $arquivoCredenciais."
+}
+}
